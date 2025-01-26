@@ -64,8 +64,13 @@ float evaluate_nn(const std::vector<float>& params) {
     std::ostringstream hidden_sizes;
     hidden_sizes << "[";
     for (int i = 0; i < num_hidden_layers; ++i) {
-        if (i > 0) hidden_sizes << ",";
-        hidden_sizes << static_cast<int>(params[6 + i]);
+        if (static_cast<int>(params[6 + i]) <= 0) {
+            return 0.0f; // if the condition is not met, gene mutated to invalid combination
+        }
+        if (i > 0) {
+            hidden_sizes << ",";
+        }
+        hidden_sizes << static_cast<int>(params[6 + i]); // append the hidden layer size
     }
     hidden_sizes << "]";
 
@@ -83,7 +88,7 @@ float evaluate_nn(const std::vector<float>& params) {
         << "}\"";
 
     if (debug_mode) {
-        std::cout << "[debug]: executing command: " << cmd.str() << std::endl;
+        std::cout << "[training]: executing command: " << cmd.str() << std::endl;
     }
 
     FILE* pipe = _popen((cmd.str() + " 2>&1").c_str(), "r");  // redirect stderr to stdout
@@ -110,22 +115,22 @@ float evaluate_nn(const std::vector<float>& params) {
     try {
         float fitness = std::stof(result);
         if (debug_mode) {
-            std::cout << "[debug]: fitness score: " << fitness << std::endl;
+            std::cout << "[training]: fitness score: " << result << std::endl;
         }
         if (logFile.is_open()) {
             logFile << std::fixed << std::setprecision(6)
                     << params[0] << "," << params[1] << "," << batch_size << ","
-                    << epochs << "," << num_hidden_layers << ",[";
+                    << epochs << "," << activation_function << "," << num_hidden_layers << ",\"["; // Start of the list with quotes
             for (int i = 0; i < num_hidden_layers; ++i) {
                 if (i > 0) logFile << ", ";
-                logFile << static_cast<int>(params[5 + i]);
+                logFile << static_cast<int>(params[6 + i]);
             }
-            logFile << "]," << fitness << "\n";
+            logFile << "]\"" << "," << fitness << "\n"; // End of the list with quotes
             logFile.flush();
         }
         return fitness;
     } catch (const std::exception& e) {
-        std::cerr << "error: invalid output from python script: " << &e << std::endl;
+        std::cerr << "[error]: invalid output from python script: " << e.what() << std::endl;
         return 0.0f;  // default fitness
     }
 }
@@ -178,9 +183,14 @@ void customInitializer(GAGenome& g) {
     int num_hidden_layers = layer_dist(gen);
     genome.gene(5, static_cast<float>(num_hidden_layers));     // number of hidden layers
 
-    // initialize sizes for only the active hidden layers
-    for (int i = 0; i < num_hidden_layers; ++i) {
-        genome.gene(6 + i, static_cast<float>(size_dist(gen))); // hidden layer sizes
+    // initialize sizes for all possible hidden layers
+    int max_hidden_layers = 5; // maximum number of hidden layers
+    for (int i = 0; i < max_hidden_layers; ++i) {
+        if (i < num_hidden_layers) {
+            genome.gene(6 + i, static_cast<float>(size_dist(gen))); // active hidden layer size
+        } else {
+            genome.gene(6 + i, 0.0f); // explicitly set unused layers to 0
+        }
     }
 }
 
@@ -206,10 +216,9 @@ int customMutator(GAGenome& g, const float mutationRate) {
         {1.0f, 5.0f}      // number of hidden layers (int)
     };
 
-    // clamp number of hidden layers (index 5)
-    int num_hidden_layers = static_cast<int>(std::round(std::clamp(genome.gene(5), validRanges[5].first, validRanges[5].second)));
+    const int maxHiddenLayers = static_cast<int>(validRanges[5].second);
 
-    // apply mutation to standard parameters (indices 0–5)
+    // mutate standard parameters (indices 0–5)
     for (int i = 0; i < validRanges.size(); ++i) {
         if (GARandomFloat(0.0f, 1.0f) < mutationRate) {  // check if this gene should mutate
             float mutationAmount = GARandomFloat(-0.1f, 0.1f);  // mutation step
@@ -221,34 +230,45 @@ int customMutator(GAGenome& g, const float mutationRate) {
             } else {  // batch size, epochs, activation function, and hidden layers (integers)
                 genome.gene(i, std::round(std::clamp(genome.gene(i), validRanges[i].first, validRanges[i].second)));
             }
-
-            // validate mutated values
-            if (genome.gene(i) < validRanges[i].first || genome.gene(i) > validRanges[i].second) {
-                genome.gene(i, GARandomFloat(validRanges[i].first, validRanges[i].second));  // regenerate valid value
-                std::cout << "[debug]: mutation occurred in gene " << i << std::endl;
+            if (debug_mode) {
+                std::cout << "[evolution]: mutation occurred in gene " << i << std::endl;
             }
         }
     }
 
-    // apply mutation to hidden layer sizes (indices 6 to 6 + num_hidden_layers - 1)
-    for (int i = 0; i < num_hidden_layers; ++i) {
+    // get updated number of hidden layers
+    int num_hidden_layers = static_cast<int>(std::round(std::clamp(genome.gene(5), validRanges[5].first, validRanges[5].second)));
+
+    // apply mutation to hidden layer sizes (indices 6 to 6 + maxHiddenLayers - 1)
+    for (int i = 0; i < maxHiddenLayers; ++i) {
         int geneIndex = 6 + i;  // index of the hidden layer size
-        if (GARandomFloat(0.0f, 1.0f) < mutationRate) {  // check if this gene should mutate
-            float mutationAmount = GARandomFloat(-10.0f, 10.0f);  // mutation step
-            genome.gene(geneIndex, genome.gene(geneIndex) + mutationAmount);
-
-            // clamp to valid range for hidden layer sizes
-            genome.gene(geneIndex, std::round(std::clamp(genome.gene(geneIndex), 16.0f, 128.0f)));
-
-            // validate mutated hidden layer size
-            if (genome.gene(geneIndex) < 16.0f || genome.gene(geneIndex) > 128.0f) {
-                genome.gene(geneIndex, GARandomFloat(16.0f, 128.0f));  // regenerate valid value
+        if (i < num_hidden_layers) {  // active layers
+            if (geneIndex >= genome.size()) {
+                // if this is a new layer, initialize it
+                genome.gene(geneIndex, GARandomFloat(16.0f, 128.0f));  // assign random valid size
+            } else if (GARandomFloat(0.0f, 1.0f) < mutationRate) {
+                // mutate existing active layers
+                float mutationAmount = GARandomFloat(-10.0f, 10.0f);  // mutation step
+                genome.gene(geneIndex, genome.gene(geneIndex) + mutationAmount);
+                genome.gene(geneIndex, std::round(std::clamp(genome.gene(geneIndex), 16.0f, 128.0f)));
             }
-            std::cout << "[debug]: mutation occurred in gene " << i << std::endl;
+        } else {
+            // Reset unused hidden layer sizes
+            genome.gene(geneIndex, 0.0f);
         }
     }
 
     return 1;  // indicates mutation occurred
+}
+
+
+float calculateAverageFitness(const GAPopulation& population) {
+    float totalFitness = 0.0f;
+    int populationSize = population.size();
+    for (int i = 0; i < populationSize; ++i) {
+        totalFitness += population.individual(i).score();
+    }
+    return totalFitness / static_cast<float>(populationSize);
 }
 
 
@@ -262,10 +282,13 @@ for the neural network.
 */
 int main(int argc, char* argv[]) {
     // default ga parameters
-    int populationSize = 20;       // population size
-    int nGenerations = 50;         // number of generations
+    int populationSize = 2;       // population size
+    int nGenerations = 3;         // number of generations
     float pMutation = 0.1f;        // mutation probability
     float pCrossover = 0.7f;       // crossover probability
+    float stoppingThreshold = 0.92f; // fitness threshold for stopping
+    int requiredConsecutiveGenerations = 5; // required consecutive generations
+    int consecutiveGenerations = 0; // counter for consecutive generations
 
     // parse command-line arguments
     for (int i = 1; i < argc; ++i) {
@@ -298,7 +321,7 @@ int main(int argc, char* argv[]) {
         logFile << "LearningRate,DropoutRate,BatchSize,Epochs,ActivationFunction,NumHiddenLayers,HiddenSizes,Fitness\n";
         std::cout << "[logfile]: " << getLogFilePath() << std::endl;
     } else {
-        std::cerr << "error: unable to open log file!" << std::endl;
+        std::cerr << "[error]: unable to open log file!" << std::endl;
         return 1; // exit if logging fails
     }
 
@@ -314,10 +337,44 @@ int main(int argc, char* argv[]) {
     ga.nGenerations(nGenerations);
     ga.pMutation(pMutation);
     ga.pCrossover(pCrossover);
-    ga.elitist(static_cast<GABoolean>(1));
+    ga.elitist(static_cast<GABoolean>(0));
 
     // evolve the population
-    ga.evolve();
+    // runs through all generations (nGenerations)
+    // ga.evolve();
+
+    // stepwise evolution
+    // handles early termination to avoid overfitting
+    ga.initialize();
+    for (int generation = 0; generation < nGenerations; ++generation) {
+        ga.step();  // perform one generation step
+
+        // evaluate the fitness of the entire population
+        for (int i = 0; i < ga.population().size(); ++i) {
+            GAGenome& individual = ga.population().individual(i);
+            float fitness = individual.evaluate();  // call the objective function
+            individual.score(fitness);             // assign the fitness score
+        }
+
+        // calculate the average fitness of the current population
+        float avgFitness = calculateAverageFitness(ga.population());
+        if (debug_mode) {
+            std::cout << "[generation " << generation << "]: average fitness: " << avgFitness << std::endl;
+        }
+
+
+        // check if the average fitness meets the stopping threshold
+        if (avgFitness >= stoppingThreshold) {
+            ++consecutiveGenerations;
+            if (consecutiveGenerations >= requiredConsecutiveGenerations) {
+                std::cout << "[stopping]: average fitness ≥ " << stoppingThreshold
+                          << " for " << requiredConsecutiveGenerations << " consecutive generations." << std::endl;
+                break;  // stop the evolution process
+            }
+        } else {
+            consecutiveGenerations = 0;  // reset the counter if the condition is not met
+        }
+    }
 
     // output the best result
     const auto& bestGenome = dynamic_cast<const GA1DArrayGenome<float>&>(ga.statistics().bestIndividual());
