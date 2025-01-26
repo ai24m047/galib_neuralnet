@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
+import os
 
 
 # Define a dynamic feedforward neural network
@@ -125,58 +126,80 @@ def train_and_evaluate(model_hyperparams):
     criterion = nn.CrossEntropyLoss()  # cross-entropy loss for classification
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)  # adam optimizer
 
-    # training loop
-    model.train()
-    for epoch in range(epochs):
-        for data, target in train_loader:
-            data, target = data.to(device), target.to(device)  # Move data to GPU/CPU
-            data = data.view(data.size(0), -1)  # flatten images
-            optimizer.zero_grad()              # reset gradients
-            output = model(data)               # forward pass
-            # print(f"[python debug]: current GPU memory usage: {torch.cuda.memory_allocated()} bytes", file=sys.stderr)
-            model_loss = criterion(output, target)   # compute loss
-            model_loss.backward()                    # backward pass
-            optimizer.step()                   # update weights
+    # create logs folder if it doesn't exist
+    log_folder = "../logs"
+    os.makedirs(log_folder, exist_ok=True)
+    log_file_path = os.path.join(log_folder, "training_log.txt")
 
-    # evaluation loop
-    model.eval()
-    total_loss = 0.0
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for data, target in test_loader:
-            # move data and target to the same device as the model
-            data, target = data.to(device), target.to(device)
-            data = data.view(data.size(0), -1)  # flatten images
+    with open(log_file_path, "a") as log_file:
+        log_file.write(f"Training started with hyperparameters: {model_hyperparams}\n")
 
-            # forward pass
-            output = model(data)
-            # print(f"[python debug]: current GPU memory usage: {torch.cuda.memory_allocated()} bytes", file=sys.stderr)
+        # track max loss during training
+        max_loss = 0.0
 
-            # compute loss
-            total_loss += criterion(output, target).item() * data.size(0)
+        # training loop
+        model.train()
+        for epoch in range(epochs):
+            for data, target in train_loader:
+                data, target = data.to(device), target.to(device)   # move data to GPU/CPU
+                data = data.view(data.size(0), -1)                  # flatten images
+                optimizer.zero_grad()                               # reset gradients
+                output = model(data)                                # forward pass
+                # print(f"[python debug]: current GPU memory usage: {torch.cuda.memory_allocated()} bytes", file=sys.stderr)
+                model_loss = criterion(output, target)              # compute loss
+                max_loss = max(max_loss, model_loss.item())         # update max loss
+                model_loss.backward()                               # backward pass
+                optimizer.step()                                    # update weights
 
-            # get predicted labels
-            _, predicted = torch.max(output, 1)
+        # evaluation loop
+        model.eval()
+        total_loss = 0.0
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for data, target in test_loader:
+                # move data and target to the same device as the model
+                data, target = data.to(device), target.to(device)
+                data = data.view(data.size(0), -1)  # flatten images
 
-            # print(f"[python debug]: predicted type: {type(predicted)}, device: {predicted.device}", file=sys.stderr)
-            # print(f"[python debug]: target type: {type(target)}, device: {target.device}", file=sys.stderr)
+                # forward pass
+                output = model(data)
+                # print(f"[python debug]: current GPU memory usage: {torch.cuda.memory_allocated()} bytes", file=sys.stderr)
 
-            # ensure the comparison happens on tensors
-            correct += (predicted == target).sum().item()  # count correct predictions
-            total += target.size(0)  # total number of samples
+                # compute loss
+                total_loss += criterion(output, target).item() * data.size(0)
 
-    # compute metrics
-    model_accuracy = correct / total
-    average_loss = total_loss / total  # normalize total loss by dataset size
+                # get predicted labels
+                _, predicted = torch.max(output, 1)
 
-    # compute fitness score as a combination of accuracy and normalized loss
-    alpha = 1.0  # weight for accuracy
-    beta = 0.5   # weight for loss
-    normalized_loss = average_loss / 10.0  # scale loss to match accuracy range
-    model_fitness = alpha * model_accuracy - beta * normalized_loss
+                # print(f"[python debug]: predicted type: {type(predicted)}, device: {predicted.device}", file=sys.stderr)
+                # print(f"[python debug]: target type: {type(target)}, device: {target.device}", file=sys.stderr)
 
-    return model_fitness, model_accuracy, average_loss
+                # ensure the comparison happens on tensors
+                correct += (predicted == target).sum().item()  # count correct predictions
+                total += target.size(0)  # total number of samples
+
+        # compute metrics
+        model_accuracy = correct / total
+        average_loss = total_loss / total  # normalize total loss by dataset size
+
+        # normalize loss and compute performance score
+        # scale loss to match the accuracy range, adjust based on the range of observed losses
+        normalized_loss = min(1.0, max(0.0, average_loss / max_loss))  # clamp to ensure it stays between 0 and 1
+
+        # combine accuracy and loss into a performance score
+        alpha = 0.7  # weight for accuracy
+        performance_score = alpha * model_accuracy + (1 - alpha) * (1 - normalized_loss)
+
+        # clamp final performance score to be between 0 and 1
+        performance_score = min(1.0, max(0.0, performance_score))
+
+        # log evaluation results to adjust factor for normalizing loss and validating performance score calculation
+        log_file.write(f"Evaluation - Accuracy: {model_accuracy:.6f}, Loss: {average_loss:.6f}, Performance Score: {performance_score:.6f}\n")
+        log_file.write("-" * 50 + "\n")
+
+    # return performance score, accuracy, and average loss
+    return performance_score, model_accuracy, average_loss
 
 
 if __name__ == '__main__':
