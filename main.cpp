@@ -9,18 +9,105 @@
 #include <filesystem>
 #include "ga/ga.h"
 
-bool debug_mode = true; // flag for printing debug messages
-std::ofstream logFile;  // global log file stream
+// global flag to enable/disable debug messages
+bool debug_mode = true;
+// global file stream for logging evolution data
+std::ofstream logFile;
 
+/**
+struct containing all configurable parameters for the genetic algorithm.
+includes basic ga settings, convergence criteria, and boundary values
+for all neural network hyperparameters that will be evolved.
+**/
+struct GAParameters {
+    // basic genetic algorithm parameters
+    int populationSize = 15;        // size of population in each generation
+    int nGenerations = 5;           // maximum number of generations to evolve
+    float pMutation = 0.2f;         // probability of mutation occurring
+    float pCrossover = 0.7f;        // probability of crossover occurring
 
-/*
+    // criteria for early stopping
+    float stoppingThreshold = 0.92f;  // minimum average fitness to consider convergence
+    int requiredConsecutiveGenerations = 5;  // number of generations that must meet threshold
+
+    // boundaries for neural network hyperparameters
+    float minLearningRate = 0.0001f;  // minimum allowed learning rate
+    float maxLearningRate = 0.1f;     // maximum allowed learning rate
+    float minDropoutRate = 0.0f;      // minimum allowed dropout rate
+    float maxDropoutRate = 0.5f;      // maximum allowed dropout rate
+    int minBatchSize = 16;            // minimum batch size for training
+    int maxBatchSize = 128;           // maximum batch size for training
+    int minEpochs = 1;                // minimum number of training epochs
+    int maxEpochs = 50;               // maximum number of training epochs
+    int minHiddenLayers = 1;          // minimum number of hidden layers
+    int maxHiddenLayers = 5;          // maximum number of hidden layers
+    int minLayerSize = 16;            // minimum nodes per hidden layer
+    int maxLayerSize = 128;           // maximum nodes per hidden layer
+};
+
+// global instance of parameters used throughout the evolution process
+GAParameters globalParams;
+
+/**
+validates and sets a float parameter within specified bounds.
+logs an error message if the value is invalid or out of bounds.
+
+@param param reference to the parameter to be set
+@param value string containing the value to parse
+@param minVal minimum allowed value for the parameter
+@param maxVal maximum allowed value for the parameter
+@param paramName name of the parameter for error reporting
+@return true if parameter was set successfully, false otherwise
+**/
+bool setFloatParameter(float& param, const char* value, float minVal, float maxVal, const std::string& paramName) {
+    try {
+        float val = std::stof(value);
+        if (val < minVal || val > maxVal) {
+            std::cerr << "error: " << paramName << " must be between " << minVal << " and " << maxVal << std::endl;
+            return false;
+        }
+        param = val;
+        return true;
+    } catch (const std::exception&) {
+        std::cerr << "error: invalid value for " << paramName << std::endl;
+        return false;
+    }
+}
+
+/**
+validates and sets an integer parameter within specified bounds.
+logs an error message if the value is invalid or out of bounds.
+
+@param param reference to the parameter to be set
+@param value string containing the value to parse
+@param minVal minimum allowed value for the parameter
+@param maxVal maximum allowed value for the parameter
+@param paramName name of the parameter for error reporting
+@return true if parameter was set successfully, false otherwise
+**/
+bool setIntParameter(int& param, const char* value, int minVal, int maxVal, const std::string& paramName) {
+    try {
+        int val = std::stoi(value);
+        if (val < minVal || val > maxVal) {
+            std::cerr << "error: " << paramName << " must be between " << minVal << " and " << maxVal << std::endl;
+            return false;
+        }
+        param = val;
+        return true;
+    } catch (const std::exception&) {
+        std::cerr << "error: invalid value for " << paramName << std::endl;
+        return false;
+    }
+}
+
+/**
 generates a unique log file path by creating a "logs" directory (if it doesn't exist)
 and appending a timestamped filename.
 
 @return a std::string representing the full path to the log file.
         the file path includes the "logs" directory and a filename
         in the format "evolution_log_<yyyy-mm-dd_hh-mm-ss>.csv".
-*/
+**/
 std::string getLogFilePath() {
     // create a logs directory if it doesn't exist
     const std::string logsDir = "../logs";
@@ -39,43 +126,59 @@ std::string getLogFilePath() {
 }
 
 
-/*
-executes a python script to evaluate the fitness of a neural network
-based on provided hyperparameters.
-@param params a vector of floats representing hyperparameters:
-       - params[0]: learning rate
-       - params[1]: dropout rate
-       - params[2]: batch size
-       - params[3]: number of epochs
-       - params[4]: activation function
-       - params[5]: number of hidden layers
-       - params[6 + i]: size of the i-th hidden layer
-@return a float value representing the fitness score of the neural network
-*/
-float evaluate_nn(const std::vector<float>& params) {
-    float learning_rate = params[0];
-    float dropout_rate = params[1];
-    int batch_size = static_cast<int>(params[2]);
-    int epochs = static_cast<int>(params[3]);
-    int activation_function = static_cast<int>(params[4]);
-    int num_hidden_layers = static_cast<int>(params[5]);
+/**
+helper function to write the current evaluation result to the log file.
+handles formatting and writing of all neural network parameters and fitness score.
 
-    // dynamically build the hidden_sizes array based on num_hidden_layers
-    std::ostringstream hidden_sizes;
-    hidden_sizes << "[";
+@param params vector of hyperparameters being evaluated
+@param num_hidden_layers number of active hidden layers
+@param batch_size current batch size setting
+@param epochs number of training epochs
+@param activation_function index of activation function
+@param fitness achieved fitness score
+**/
+void logEvaluationResult(const std::vector<float>& params,
+                        int num_hidden_layers,
+                        int batch_size,
+                        int epochs,
+                        int activation_function,
+                        float fitness) {
+    if (!logFile.is_open()) return;
+
+    logFile << std::fixed << std::setprecision(8)
+            << params[0] << "," << params[1] << ","
+            << batch_size << "," << epochs << ","
+            << activation_function << "," << num_hidden_layers << ",\"[";
+
+    // write hidden layer sizes
     for (int i = 0; i < num_hidden_layers; ++i) {
-        if (static_cast<int>(params[6 + i]) <= 0) {
-            return 0.0f; // if the condition is not met, gene mutated to invalid combination
-        }
-        if (i > 0) {
-            hidden_sizes << ",";
-        }
-        hidden_sizes << static_cast<int>(params[6 + i]); // append the hidden layer size
+        if (i > 0) logFile << ", ";
+        logFile << static_cast<int>(params[6 + i]);
     }
-    hidden_sizes << "]";
+    logFile << "]\"" << "," << fitness << "\n";
+    logFile.flush();
+}
 
+/**
+builds the json command string for the neural network evaluation script.
+formats all hyperparameters into the required json structure.
 
-    // construct the python command
+@param learning_rate learning rate for the neural network
+@param dropout_rate dropout rate for regularization
+@param batch_size training batch size
+@param epochs number of training epochs
+@param activation_function index of activation function to use
+@param num_hidden_layers number of hidden layers
+@param hidden_sizes string containing formatted layer sizes
+@return formatted command string for the python script
+**/
+std::string buildPythonCommand(float learning_rate,
+                             float dropout_rate,
+                             int batch_size,
+                             int epochs,
+                             int activation_function,
+                             int num_hidden_layers,
+                             const std::string& hidden_sizes) {
     std::ostringstream cmd;
     cmd << "python ../evol_neuralnet.py \""
         << R"({\"learning_rate\":)" << learning_rate
@@ -84,88 +187,127 @@ float evaluate_nn(const std::vector<float>& params) {
         << R"(, \"epochs\":)" << epochs
         << R"(, \"activation_function\":)" << activation_function
         << R"(, \"num_hidden_layers\":)" << num_hidden_layers
-        << R"(, \"hidden_sizes\":)" << hidden_sizes.str()
+        << R"(, \"hidden_sizes\":)" << hidden_sizes
         << "}\"";
+    return cmd.str();
+}
+
+/**
+formats the hidden layer sizes into a json-compatible string.
+validates that all layer sizes are positive before including them.
+
+@param params vector containing all neural network parameters
+@param num_hidden_layers number of active hidden layers to process
+@return formatted string of layer sizes or empty string if validation fails
+**/
+std::string formatHiddenSizes(const std::vector<float>& params, int num_hidden_layers) {
+    std::ostringstream hidden_sizes;
+    hidden_sizes << "[";
+    for (int i = 0; i < num_hidden_layers; ++i) {
+        // validate layer size
+        if (static_cast<int>(params[6 + i]) <= 0) {
+            return "";  // invalid layer size detected
+        }
+        if (i > 0) {
+            hidden_sizes << ",";
+        }
+        hidden_sizes << static_cast<int>(params[6 + i]);
+    }
+    hidden_sizes << "]";
+    return hidden_sizes.str();
+}
+
+/**
+executes a python script to evaluate the fitness of a neural network
+based on provided hyperparameters.
+
+@param params a vector of floats representing hyperparameters:
+       - params[0]: learning rate
+       - params[1]: dropout rate
+       - params[2]: batch size
+       - params[3]: number of epochs
+       - params[4]: activation function
+       - params[5]: number of hidden layers
+       - params[6 + i]: size of the i-th hidden layer
+@return a float value representing the fitness score of the neural network.
+        returns 0.0f if evaluation fails or produces invalid results.
+**/
+float evaluate_nn(const std::vector<float>& params) {
+    // extract and convert basic parameters
+    float learning_rate = params[0];
+    float dropout_rate = params[1];
+    int batch_size = static_cast<int>(params[2]);
+    int epochs = static_cast<int>(params[3]);
+    int activation_function = static_cast<int>(params[4]);
+    int num_hidden_layers = static_cast<int>(params[5]);
+
+    // format hidden layer configuration
+    std::string hidden_sizes = formatHiddenSizes(params, num_hidden_layers);
+    if (hidden_sizes.empty()) {
+        // invalid layer configuration detected
+        logEvaluationResult(params, num_hidden_layers, batch_size, epochs,
+                           activation_function, 0.0f);
+        return 0.0f;
+    }
+
+    // build and execute python command
+    std::string cmd = buildPythonCommand(learning_rate, dropout_rate, batch_size,
+                                       epochs, activation_function, num_hidden_layers,
+                                       hidden_sizes);
 
     if (debug_mode) {
-        std::cout << "[training]: executing command: " << cmd.str() << std::endl;
+        std::cout << "[training]: executing command: " << cmd << std::endl;
     }
 
-    FILE* pipe = _popen((cmd.str() + " 2>&1").c_str(), "r");  // redirect stderr to stdout
+    // execute python script and capture output
+    FILE* pipe = _popen((cmd + " 2>&1").c_str(), "r");  // redirect stderr to stdout
     if (!pipe) {
         std::cerr << "error: could not open pipe to python script!" << std::endl;
-        float fitness = 0.0f;
-        if (logFile.is_open()) {
-            logFile << std::fixed << std::setprecision(8)
-            << params[0] << "," << params[1] << "," << batch_size << ","
-            << epochs << "," << activation_function << "," << num_hidden_layers << ",\"["; // Start of the list with quotes
-            for (int i = 0; i < num_hidden_layers; ++i) {
-                if (i > 0) logFile << ", ";
-                logFile << static_cast<int>(params[6 + i]);
-            }
-            logFile << "]\"" << "," << fitness << "\n"; // End of the list with quotes
-            logFile.flush();
-        }
-        return fitness;  // default fitness
+        logEvaluationResult(params, num_hidden_layers, batch_size, epochs,
+                           activation_function, 0.0f);
+        return 0.0f;
     }
 
-    // Read the final output only
+    // read script output (expecting single line with fitness score)
     char buffer[128];
     std::string result;
     if (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        result = buffer;  // read just the first line of output (fitness score)
+        result = buffer;
     }
 
-    // Close the process and get the return code
+    // check script execution status
     int returnCode = _pclose(pipe);
     if (returnCode != 0) {
         std::cerr << "error: python script failed with return code " << returnCode << std::endl;
-        float fitness = 0.0f;
-        if (logFile.is_open()) {
-            logFile << std::fixed << std::setprecision(8)
-            << params[0] << "," << params[1] << "," << batch_size << ","
-            << epochs << "," << activation_function << "," << num_hidden_layers << ",\"["; // Start of the list with quotes
-            for (int i = 0; i < num_hidden_layers; ++i) {
-                if (i > 0) logFile << ", ";
-                logFile << static_cast<int>(params[6 + i]);
-            }
-            logFile << "]\"" << "," << fitness << "\n"; // End of the list with quotes
-            logFile.flush();
-            }
-        return fitness;  // default fitness
+        logEvaluationResult(params, num_hidden_layers, batch_size, epochs,
+                           activation_function, 0.0f);
+        return 0.0f;
     }
 
-    // parse the output as a float representing fitness
+    // parse and validate fitness score
     try {
         float fitness = std::stof(result);
         if (debug_mode) {
             std::cout << "[training]: fitness score: " << result << std::endl;
         }
-        if (logFile.is_open()) {
-            logFile << std::fixed << std::setprecision(8)
-            << params[0] << "," << params[1] << "," << batch_size << ","
-            << epochs << "," << activation_function << "," << num_hidden_layers << ",\"["; // Start of the list with quotes
-            for (int i = 0; i < num_hidden_layers; ++i) {
-                if (i > 0) logFile << ", ";
-                    logFile << static_cast<int>(params[6 + i]);
-            }
-            logFile << "]\"" << "," << fitness << "\n"; // End of the list with quotes
-            logFile.flush();
-        }
+        logEvaluationResult(params, num_hidden_layers, batch_size, epochs,
+                           activation_function, fitness);
         return fitness;
     } catch (const std::exception& e) {
         std::cerr << "[error]: invalid output from python script: " << e.what() << std::endl;
-        return 0.0f;  // default fitness
+        logEvaluationResult(params, num_hidden_layers, batch_size, epochs,
+                           activation_function, 0.0f);
+        return 0.0f;
     }
 }
 
 
-/*
+/**
 objective function for galib. evaluates the fitness of a genome
 by passing its parameters to the evaluate_nn function.
 @param g a reference to the genome being evaluated
 @return a float value representing the fitness score of the genome
-*/
+**/
 float Objective(GAGenome& g) {
     const auto& genome = dynamic_cast<GA1DArrayGenome<float>&>(g);
 
@@ -180,281 +322,418 @@ float Objective(GAGenome& g) {
 }
 
 
-/*
-custom initializer for the genome. randomly initializes hyperparameters
-such as learning rate, dropout rate, batch size, epochs, and hidden layer sizes.
-@param g a reference to the genome being initialized
-*/
+/**
+custom genome initializer for galib. randomly generates initial values for all neural network
+hyperparameters according to the bounds specified in globalParams.
+
+each genome contains the following genes:
+- gene[0]: learning rate (float)
+- gene[1]: dropout rate (float)
+- gene[2]: batch size (int)
+- gene[3]: epochs (int)
+- gene[4]: activation function (int, 0-3)
+- gene[5]: number of hidden layers (int)
+- gene[6+]: size of each hidden layer (int), with unused layers set to 0
+
+@param g reference to the genome being initialized
+**/
 void customInitializer(GAGenome& g) {
     auto& genome = dynamic_cast<GA1DArrayGenome<float>&>(g);
 
+    // set up random number generator
     std::random_device rd;
     std::mt19937 gen(rd());
 
-    std::uniform_real_distribution<float> lr_dist(0.0001f, 0.1f);   // learning rate
-    std::uniform_real_distribution<float> dropout_dist(0.0f, 0.5f); // dropout rate
-    std::uniform_int_distribution<int> batch_dist(16, 128);         // batch size
-    std::uniform_int_distribution<int> epoch_dist(1, 50);           // epochs
-    std::uniform_int_distribution<int> activation_dist(0, 3);       // activation function
-    std::uniform_int_distribution<int> layer_dist(1, 5);            // number of hidden layers
-    std::uniform_int_distribution<int> size_dist(16, 128);          // hidden layer sizes
+    // create distributions for each parameter type according to globalParams bounds
+    std::uniform_real_distribution<float> lr_dist(globalParams.minLearningRate, globalParams.maxLearningRate);
+    std::uniform_real_distribution<float> dropout_dist(globalParams.minDropoutRate, globalParams.maxDropoutRate);
+    std::uniform_int_distribution<int> batch_dist(globalParams.minBatchSize, globalParams.maxBatchSize);
+    std::uniform_int_distribution<int> epoch_dist(globalParams.minEpochs, globalParams.maxEpochs);
+    std::uniform_int_distribution<int> activation_dist(0, 3);  // fixed range for activation functions
+    std::uniform_int_distribution<int> layer_dist(globalParams.minHiddenLayers, globalParams.maxHiddenLayers);
+    std::uniform_int_distribution<int> size_dist(globalParams.minLayerSize, globalParams.maxLayerSize);
 
-    genome.gene(0, lr_dist(gen));                              // learning rate
-    genome.gene(1, dropout_dist(gen));                         // dropout rate
-    genome.gene(2, static_cast<float>(batch_dist(gen)));       // batch size
-    genome.gene(3, static_cast<float>(epoch_dist(gen)));       // epochs
-    genome.gene(4, static_cast<float>(activation_dist(gen)));  // activation function
+    // initialize basic hyperparameters
+    genome.gene(0, lr_dist(gen));          // learning rate
+    genome.gene(1, dropout_dist(gen));     // dropout rate
+    genome.gene(2, static_cast<float>(batch_dist(gen)));    // batch size
+    genome.gene(3, static_cast<float>(epoch_dist(gen)));    // epochs
+    genome.gene(4, static_cast<float>(activation_dist(gen))); // activation function
+
+    // randomly determine number of hidden layers
     int num_hidden_layers = layer_dist(gen);
-    genome.gene(5, static_cast<float>(num_hidden_layers));     // number of hidden layers
+    genome.gene(5, static_cast<float>(num_hidden_layers));
 
-    // initialize sizes for all possible hidden layers
-    int max_hidden_layers = 5; // maximum number of hidden layers
-    for (int i = 0; i < max_hidden_layers; ++i) {
+    // initialize hidden layer sizes
+    // active layers get random sizes, unused layers are set to 0
+    for (int i = 0; i < globalParams.maxHiddenLayers; ++i) {
         if (i < num_hidden_layers) {
-            genome.gene(6 + i, static_cast<float>(size_dist(gen))); // active hidden layer size
+            genome.gene(6 + i, static_cast<float>(size_dist(gen)));  // active layer
         } else {
-            genome.gene(6 + i, 0.0f); // explicitly set unused layers to 0
+            genome.gene(6 + i, 0.0f);  // inactive layer
         }
     }
 }
 
+/**
+custom genome mutator for galib. applies random mutations to genes while ensuring values
+stay within valid ranges. different mutation strategies are used for different parameter types:
+- float parameters: small continuous changes
+- integer parameters: small changes rounded to integers
+- layer structure: maintains consistency between num_hidden_layers and layer sizes
 
-/*
-custom mutator for the genome.
-modifies genome values by applying random mutations to parameters and ensures
-all values remain within valid ranges by clamping them.
-@param g a reference to the genome being mutated
-@param mutationRate the probability of mutating a specific gene
-@return 1 to indicate that mutation occurred
-*/
-int customMutator(GAGenome& g, const float mutationRate) {
+@param g reference to the genome being mutated
+@param mutationRate probability of each gene being mutated
+@return always returns 1 to indicate mutation occurred
+**/
+int customMutator(GAGenome& g, float mutationRate) {
     auto& genome = dynamic_cast<GA1DArrayGenome<float>&>(g);
 
-    // define valid ranges for parameters
+    // define valid ranges for each basic parameter
     const std::vector<std::pair<float, float>> validRanges = {
-        {0.0001f, 0.1f},  // learning rate (float)
-        {0.0f, 0.5f},     // dropout rate (float)
-        {16.0f, 128.0f},  // batch size (int)
-        {1.0f, 50.0f},    // epochs (int)
-        {0.0f, 3.0f},     // activation function (int)
-        {1.0f, 5.0f}      // number of hidden layers (int)
+        {globalParams.minLearningRate, globalParams.maxLearningRate},     // learning rate
+        {globalParams.minDropoutRate, globalParams.maxDropoutRate},       // dropout rate
+        {static_cast<float>(globalParams.minBatchSize),
+         static_cast<float>(globalParams.maxBatchSize)},                             // batch size
+        {static_cast<float>(globalParams.minEpochs),
+         static_cast<float>(globalParams.maxEpochs)},                                // epochs
+        {0.0f, 3.0f},                                                           // activation function
+        {static_cast<float>(globalParams.minHiddenLayers),
+         static_cast<float>(globalParams.maxHiddenLayers)}                           // number of hidden layers
     };
 
-    const int maxHiddenLayers = static_cast<int>(validRanges[5].second);
-
-    // mutate standard parameters (indices 0–5)
+    // mutate basic parameters (genes 0-5)
     for (int i = 0; i < validRanges.size(); ++i) {
-        if (GARandomFloat(0.0f, 1.0f) < mutationRate) {  // check if this gene should mutate
-            float mutationAmount = GARandomFloat(-0.1f, 0.1f);  // mutation step
+        if (GARandomFloat(0.0f, 1.0f) < mutationRate) {
+            // apply random mutation
+            float mutationAmount = GARandomFloat(-0.1f, 0.1f);
             genome.gene(i, genome.gene(i) + mutationAmount);
 
-            // clamp to valid range and round where needed
+            // clamp to valid range, with special handling for float vs int parameters
             if (i == 0 || i == 1) {  // learning rate and dropout rate (floats)
-                genome.gene(i, std::clamp(genome.gene(i), validRanges[i].first, validRanges[i].second));
-            } else {  // batch size, epochs, activation function, and hidden layers (integers)
-                genome.gene(i, std::round(std::clamp(genome.gene(i), validRanges[i].first, validRanges[i].second)));
+                genome.gene(i, std::clamp(genome.gene(i),
+                    validRanges[i].first, validRanges[i].second));
+            } else {  // integer parameters
+                genome.gene(i, std::round(std::clamp(genome.gene(i),
+                    validRanges[i].first, validRanges[i].second)));
             }
+
             if (debug_mode) {
                 std::cout << "[evolution]: mutation occurred in gene " << i << std::endl;
             }
         }
     }
 
-    // get updated number of hidden layers
-    int num_hidden_layers = static_cast<int>(std::round(std::clamp(genome.gene(5), validRanges[5].first, validRanges[5].second)));
+    // get current number of hidden layers after possible mutation
+    int num_hidden_layers = static_cast<int>(std::round(std::clamp(genome.gene(5),
+        validRanges[5].first, validRanges[5].second)));
 
-    // apply mutation to hidden layer sizes (indices 6 to 6 + maxHiddenLayers - 1)
-    for (int i = 0; i < maxHiddenLayers; ++i) {
-        int geneIndex = 6 + i;  // index of the hidden layer size
-        if (i < num_hidden_layers) {  // active layers
+    // mutate hidden layer sizes (genes 6+)
+    for (int i = 0; i < globalParams.maxHiddenLayers; ++i) {
+        int geneIndex = 6 + i;
+        if (i < num_hidden_layers) {  // active layer
             if (geneIndex >= genome.size()) {
-                // if this is a new layer, initialize it
-                genome.gene(geneIndex, GARandomFloat(16.0f, 128.0f));  // assign random valid size
+                // initialize new layer if needed
+                genome.gene(geneIndex, GARandomFloat(
+                    static_cast<float>(globalParams.minLayerSize),
+                    static_cast<float>(globalParams.maxLayerSize)));
             } else if (GARandomFloat(0.0f, 1.0f) < mutationRate) {
-                // mutate existing active layers
-                float mutationAmount = GARandomFloat(-10.0f, 10.0f);  // mutation step
+                // mutate existing layer size
+                float mutationAmount = GARandomFloat(-10.0f, 10.0f);
                 genome.gene(geneIndex, genome.gene(geneIndex) + mutationAmount);
-                genome.gene(geneIndex, std::round(std::clamp(genome.gene(geneIndex), 16.0f, 128.0f)));
+                genome.gene(geneIndex, std::round(std::clamp(genome.gene(geneIndex),
+                    static_cast<float>(globalParams.minLayerSize),
+                    static_cast<float>(globalParams.maxLayerSize))));
             }
-        } else {
-            // Reset unused hidden layer sizes
+        } else {  // inactive layer
             genome.gene(geneIndex, 0.0f);
         }
     }
 
-    return 1;  // indicates mutation occurred
+    return 1;  // indicate mutation occurred
 }
 
+/**
+calculates the average fitness across all individuals in a population.
+used to track evolution progress and check convergence criteria.
 
+@param population reference to the GAPopulation to analyze
+@return float value representing the average fitness of all individuals
+**/
 float calculateAverageFitness(const GAPopulation& population) {
     float totalFitness = 0.0f;
     int populationSize = population.size();
+    // sum up fitness scores of all individuals
     for (int i = 0; i < populationSize; ++i) {
         totalFitness += population.individual(i).score();
     }
+    // return average fitness
     return totalFitness / static_cast<float>(populationSize);
 }
 
+/**
+prints detailed help information about the program's usage,
+explaining all available command-line parameters, their meanings,
+and their default or allowed ranges.
+**/
+void printHelp(const char* programName) {
+    std::cout << "Neural Network Hyperparameter Optimization\n"
+              << "Usage: " << programName << " [options]\n\n"
+              << "This program uses a Genetic Algorithm to optimize neural network hyperparameters.\n"
+              << "It can be run without any parameters, using default settings.\n\n"
+              << "Available Options:\n"
+              << "  --help                 Display this help message\n\n"
+              << "Genetic Algorithm Parameters:\n"
+              << "  --population <size>    Population size for genetic algorithm (default: 15, range: 1-1000)\n"
+              << "  --generations <count>  Maximum number of generations (default: 5, range: 1-1000)\n"
+              << "  --mutation <prob>      Mutation probability (default: 0.2, range: 0.0-1.0)\n"
+              << "  --crossover <prob>     Crossover probability (default: 0.7, range: 0.0-1.0)\n"
+              << "  --fitness-threshold <threshold>  Early stopping fitness threshold (default: 0.92, range: 0.0-1.0)\n"
+              << "  --consecutive-gen <count>  Consecutive generations to meet threshold for early stopping (default: 5, range: 1-1000)\n\n"
+              << "Neural Network Hyperparameter Boundaries:\n"
+              << "  --min-lr <rate>        Minimum learning rate (range: 0.0-1.0)\n"
+              << "  --max-lr <rate>        Maximum learning rate (range: 0.0-1.0)\n"
+              << "  --min-dropout <rate>   Minimum dropout rate (range: 0.0-1.0)\n"
+              << "  --max-dropout <rate>   Maximum dropout rate (range: 0.0-1.0)\n"
+              << "  --min-batch <size>     Minimum batch size (range: 1-1000)\n"
+              << "  --max-batch <size>     Maximum batch size (range: 1-1000)\n"
+              << "  --min-epochs <count>   Minimum training epochs (range: 1-1000)\n"
+              << "  --max-epochs <count>   Maximum training epochs (range: 1-1000)\n"
+              << "  --min-layers <count>   Minimum hidden layers (range: 1-1000)\n"
+              << "  --max-layers <count>   Maximum hidden layers (range: 1-1000)\n"
+              << "  --min-layer-size <size> Minimum hidden layer size (range: 1-1000)\n"
+              << "  --max-layer-size <size> Maximum hidden layer size (range: 1-1000)\n\n"
+              << "Example Usage:\n"
+              << "  " << programName << "  # Run with default settings\n"
+              << "  " << programName << " --population 30 --generations 10 --mutation 0.1\n"
+              << "  " << programName << " --min-lr 0.001 --max-lr 0.01 --min-batch 32 --max-batch 128\n\n"
+              << "The program uses a Genetic Algorithm to explore and find optimal hyperparameters\n"
+              << "for a neural network by minimizing the objective function.\n";
+}
 
-/*
-main function. sets up and configures the genetic algorithm,
-then evolves the population to find optimal hyperparameters
-for the neural network.
-@param argc the number of command-line arguments
-@param argv the command-line arguments
-@return an integer representing the exit code (0 for success)
-*/
+/**
+main function orchestrating the genetic algorithm for neural network hyperparameter optimization.
+handles command-line argument parsing, ga configuration, evolution process, and result logging.
+supports early stopping when convergence criteria are met.
+
+@param argc number of command-line arguments
+@param argv array of command-line argument strings
+@return 0 for successful execution, 1 for errors
+**/
 int main(int argc, char* argv[]) {
-    // default ga parameters
-    int populationSize = 10;       // population size
-    int nGenerations = 15;         // number of generations
-    float pMutation = 0.2f;        // mutation probability
-    float pCrossover = 0.7f;       // crossover probability
-    float stoppingThreshold = 0.92f; // fitness threshold for stopping
-    int requiredConsecutiveGenerations = 5; // required consecutive generations
-    int consecutiveGenerations = 0; // counter for consecutive generations
-
-    // parse command-line arguments
+    // check for help flag first
     for (int i = 1; i < argc; ++i) {
-        if (std::string arg = argv[i]; arg == "--population" && i + 1 < argc) {
-            populationSize = std::stoi(argv[++i]);
-        } else if (arg == "--generations" && i + 1 < argc) {
-            nGenerations = std::stoi(argv[++i]);
-        } else if (arg == "--mutation" && i + 1 < argc) {
-            pMutation = std::stof(argv[++i]);
-        } else if (arg == "--crossover" && i + 1 < argc) {
-            pCrossover = std::stof(argv[++i]);
-        } else {
-            std::cerr << "unknown argument: " << arg << std::endl;
-            std::cerr << "usage: " << argv[0]
-                      << " [--population <size>] [--generations <count>] "
-                      << "[--mutation <probability>] [--crossover <probability>]" << std::endl;
-            return 1;
+        std::string arg = argv[i];
+        if (arg == "--help" || arg == "-h") {
+            printHelp(argv[0]);
+            return 0;
         }
+    }
+    // parse command-line arguments
+for (int i = 1; i < argc; ++i) {
+    std::string arg = argv[i];
+    // ensure each argument has a corresponding value
+    if (i + 1 >= argc) {
+        std::cerr << "error: missing value for " << arg << std::endl;
+        return 1;
+    }
+
+    // process each argument and set corresponding parameter
+    bool success = true;
+    if (arg == "--population") {
+        success = setIntParameter(globalParams.populationSize, argv[++i], 1, 1000, "population size");
+    } else if (arg == "--generations") {
+        success = setIntParameter(globalParams.nGenerations, argv[++i], 1, 1000, "generations");
+    } else if (arg == "--mutation") {
+        success = setFloatParameter(globalParams.pMutation, argv[++i], 0.0f, 1.0f, "mutation probability");
+    } else if (arg == "--crossover") {
+        success = setFloatParameter(globalParams.pCrossover, argv[++i], 0.0f, 1.0f, "crossover probability");
+    } else if (arg == "--fitness-threshold") {
+        success = setFloatParameter(globalParams.stoppingThreshold, argv[++i], 0.0f, 1.0f, "fitness threshold");
+    } else if (arg == "--consecutive-gen") {
+        success = setIntParameter(globalParams.requiredConsecutiveGenerations, argv[++i], 1, 1000, "consecutive generations");
+    } else if (arg == "--min-lr") {
+        success = setFloatParameter(globalParams.minLearningRate, argv[++i], 0.0f, 1.0f, "minimum learning rate");
+    } else if (arg == "--max-lr") {
+        success = setFloatParameter(globalParams.maxLearningRate, argv[++i], 0.0f, 1.0f, "maximum learning rate");
+    } else if (arg == "--min-dropout") {
+        success = setFloatParameter(globalParams.minDropoutRate, argv[++i], 0.0f, 1.0f, "minimum dropout rate");
+    } else if (arg == "--max-dropout") {
+        success = setFloatParameter(globalParams.maxDropoutRate, argv[++i], 0.0f, 1.0f, "maximum dropout rate");
+    } else if (arg == "--min-batch") {
+        success = setIntParameter(globalParams.minBatchSize, argv[++i], 1, 1000, "minimum batch size");
+    } else if (arg == "--max-batch") {
+        success = setIntParameter(globalParams.maxBatchSize, argv[++i], 1, 1000, "maximum batch size");
+    } else if (arg == "--min-epochs") {
+        success = setIntParameter(globalParams.minEpochs, argv[++i], 1, 1000, "minimum epochs");
+    } else if (arg == "--max-epochs") {
+        success = setIntParameter(globalParams.maxEpochs, argv[++i], 1, 1000, "maximum epochs");
+    } else if (arg == "--min-layers") {
+        success = setIntParameter(globalParams.minHiddenLayers, argv[++i], 1, 1000, "minimum hidden layers");
+    } else if (arg == "--max-layers") {
+        success = setIntParameter(globalParams.maxHiddenLayers, argv[++i], 1, 1000, "maximum hidden layers");
+    } else if (arg == "--min-layer-size") {
+        success = setIntParameter(globalParams.minLayerSize, argv[++i], 1, 1000, "minimum layer size");
+    } else if (arg == "--max-layer-size") {
+        success = setIntParameter(globalParams.maxLayerSize, argv[++i], 1, 1000, "maximum layer size");
+    } else {
+        std::cerr << "unknown argument: " << arg << std::endl;
+        success = false;
+    }
+
+    // if parameter setting failed, display complete usage information
+    if (!success) {
+        std::cerr << "usage: " << argv[0] << "\n"
+                  << "  [--population <size>] [--generations <count>]\n"
+                  << "  [--mutation <prob>] [--crossover <prob>]\n"
+                  << "  [--fitness-threshold <threshold>] [--consecutive-gen <count>]\n"
+                  << "  [--min-lr <rate>] [--max-lr <rate>]\n"
+                  << "  [--min-dropout <rate>] [--max-dropout <rate>]\n"
+                  << "  [--min-batch <size>] [--max-batch <size>]\n"
+                  << "  [--min-epochs <count>] [--max-epochs <count>]\n"
+                  << "  [--min-layers <count>] [--max-layers <count>]\n"
+                  << "  [--min-layer-size <size>] [--max-layer-size <size>]\n";
+        return 1;
+    }
+}
+
+    // validate relationships between min/max parameters
+    if (globalParams.minLearningRate >= globalParams.maxLearningRate) {
+        std::cerr << "error: minimum learning rate must be less than maximum learning rate" << std::endl;
+        return 1;
+    }
+    if (globalParams.minDropoutRate >= globalParams.maxDropoutRate) {
+        std::cerr << "error: minimum dropout rate must be less than maximum dropout rate" << std::endl;
+        return 1;
+    }
+    if (globalParams.minBatchSize >= globalParams.maxBatchSize) {
+        std::cerr << "error: minimum batch size must be less than maximum batch size" << std::endl;
+        return 1;
+    }
+    if (globalParams.minEpochs >= globalParams.maxEpochs) {
+        std::cerr << "error: minimum epochs must be less than maximum epochs" << std::endl;
+        return 1;
+    }
+    if (globalParams.minHiddenLayers >= globalParams.maxHiddenLayers) {
+        std::cerr << "error: minimum hidden layers must be less than maximum hidden layers" << std::endl;
+        return 1;
+    }
+    if (globalParams.minLayerSize >= globalParams.maxLayerSize) {
+        std::cerr << "error: minimum layer size must be less than maximum layer size" << std::endl;
+        return 1;
     }
 
     // print configured parameters
-    std::cout << "[config]: population size: " << populationSize << std::endl;
-    std::cout << "[config]: number of generations: " << nGenerations << std::endl;
-    std::cout << "[config]: mutation probability: " << pMutation << std::endl;
-    std::cout << "[config]: crossover probability: " << pCrossover << std::endl;
+    std::cout << "-----------------------------------------------------------------------------------------" << std::endl;
+    std::cout << "[config]: population size: " << globalParams.populationSize << std::endl;
+    std::cout << "[config]: number of generations: " << globalParams.nGenerations << std::endl;
+    std::cout << "[config]: mutation probability: " << globalParams.pMutation << std::endl;
+    std::cout << "[config]: crossover probability: " << globalParams.pCrossover << std::endl;
+    std::cout << "-----------------------------------------------------------------------------------------" << std::endl;
 
-    // open the log file for writing
+    // initialize logging
     logFile.open(getLogFilePath(), std::ios::out);
     if (logFile.is_open()) {
         logFile << "LearningRate,DropoutRate,BatchSize,Epochs,ActivationFunction,NumHiddenLayers,HiddenSizes,Fitness\n";
+        std::cout << "-----------------------------------------------------------------------------------------" << std::endl;
         std::cout << "[logfile]: " << getLogFilePath() << std::endl;
+        std::cout << "-----------------------------------------------------------------------------------------" << std::endl;
         logFile.flush();
     } else {
         std::cerr << "[error]: unable to open log file!" << std::endl;
-        return 1; // exit if logging fails
+        return 1;
     }
 
-    // create and configure the genetic algorithm
-    constexpr int max_hidden_layers = 5;
-    constexpr int genome_size = 6 + max_hidden_layers;
+    // configure genetic algorithm
+    const int max_hidden_layers = globalParams.maxHiddenLayers;  // maximum number of hidden layers supported
+    const int genome_size = 6 + max_hidden_layers;  // genes for params + layer sizes
+
+    // create and configure genome template
     GA1DArrayGenome<float> genome(genome_size, Objective);
     genome.initializer(customInitializer);
     genome.mutator(customMutator);
-    std::cout << "[debug]: setting ga parameters" << std::endl;
-    GASimpleGA ga(genome);
-    ga.populationSize(populationSize);
-    ga.nGenerations(nGenerations);
-    ga.pMutation(pMutation);
-    ga.pCrossover(pCrossover);
-    ga.elitist(static_cast<GABoolean>(0));
 
-    std::cout << "[debug]: setting ga scaling" << std::endl;
+    // create and configure ga instance
+    GASimpleGA ga(genome);
+    ga.populationSize(globalParams.populationSize);
+    ga.nGenerations(globalParams.nGenerations);
+    ga.pMutation(globalParams.pMutation);
+    ga.pCrossover(globalParams.pCrossover);
+    ga.elitist(static_cast<GABoolean>(1));  // enable elitism to preserve best solutions
+
+    // configure scaling and termination
     GANoScaling scaling;
     ga.scaling(scaling);
-
-    // Add these lines to force evaluation in each generation
-    ga.minimize();  // We're maximizing fitness
+    ga.maximize();  // we want to maximize fitness
     ga.terminator(GAGeneticAlgorithm::TerminateUponGeneration);
-    ga.scoreFrequency(1);   // Score every generation
-    ga.flushFrequency(1);   // Flush scores every generation
+    ga.scoreFrequency(1);   // evaluate fitness every generation
+    ga.flushFrequency(1);   // update statistics every generation
 
-    // evolve the population
-    // runs through all generations (nGenerations)
-    // ga.evolve();
-
-    // stepwise evolution
-    // handles early termination to avoid overfitting
-    std::cout << "[debug]: initialize ga" << std::endl;
+    // initialize evolution process
+    if (debug_mode) {
+        std::cout << "-----------------------------------------------------------------------------------------" << std::endl;
+    }
     ga.initialize();
-    std::cout << "[debug]: population after initialization " << ga.population().size() << std::endl;
-    std::cout << "[debug]: enter evolution loop" << std::endl;
-    for (int generation = 0; generation < nGenerations; ++generation) {
-        // validate population size
-        std::cout << "[debug]: population " << ga.population().size() << std::endl;
-        std::cout << "[debug]: generation " << generation << std::endl;
-        if (ga.population().size() != populationSize) {
+
+    // evaluate initial population
+    float avgFitness = calculateAverageFitness(ga.population());
+    if (debug_mode) {
+        std::cout << "-----------------------------------------------------------------------------------------" << std::endl;
+        std::cout << "[generation 0] average fitness: " << avgFitness << std::endl;
+        std::cout << "-----------------------------------------------------------------------------------------" << std::endl;
+    }
+
+    // log initial generation results
+    if (logFile.is_open()) {
+        logFile << "[generation 0] average fitness: " << avgFitness << "\n";
+        logFile.flush();
+    }
+
+    // evolution loop
+    int consecutiveGenerations = 0;  // counter for convergence check
+
+    for (int generation = 1; generation < globalParams.nGenerations; ++generation) {
+        // verify population size
+        if (ga.population().size() != globalParams.populationSize) {
             std::cerr << "[error]: Population size mismatch in generation " << generation
-                      << ". Expected: " << populationSize
+                      << ". Expected: " << globalParams.populationSize
                       << ", Actual: " << ga.population().size() << std::endl;
         }
-        std::cout << "[debug]: starting step for  " << generation << std::endl;
 
-        std::cout << "[debug]: pre-step individuals:\n";
-        for (int i = 0; i < ga.population().size(); i++) {
-            const auto& genome = dynamic_cast<const GA1DArrayGenome<float>&>(ga.population().individual(i));
-            std::cout << "  Individual " << i << ": score=" << genome.score() << "\n";
-        }
-
+        // evolve population by one generation
         ga.step();
 
-        std::cout << "[debug]: post-step population size: " << ga.population().size() << std::endl;
-
-        // Print details of each individual after step
-        std::cout << "[debug]: post-step individuals:\n";
-        for (int i = 0; i < ga.population().size(); i++) {
-            const auto& genome = dynamic_cast<const GA1DArrayGenome<float>&>(ga.population().individual(i));
-            std::cout << "  Individual " << i << ": score=" << genome.score() << "\n";
-        }
-
-        std::cout << "[debug]: finished step for  " << generation << std::endl;
-
-        // Calculate average fitness using existing scores
-        std::cout << "[debug]: calculating fitness for  " << generation << std::endl;
-        float avgFitness = calculateAverageFitness(ga.population());
-
+        // calculate and log fitness metrics
+        avgFitness = calculateAverageFitness(ga.population());
         if (debug_mode) {
-            std::cout << "[generation " << generation << "]: average fitness: " << avgFitness << std::endl;
+            std::cout << "-----------------------------------------------------------------------------------------" << std::endl;
+            std::cout << "[generation " << generation << "] average fitness: " << avgFitness << std::endl;
+            std::cout << "-----------------------------------------------------------------------------------------" << std::endl;
         }
-        std::cout << "[debug]: start logging fitness for  " << generation << std::endl;
-        // Log the results
         if (logFile.is_open()) {
             logFile << "[generation " << generation << "] average fitness: " << avgFitness << "\n";
             logFile.flush();
         }
-        std::cout << "[debug]: finished logging fitness for  " << generation << std::endl;
 
-        std::cout << "[debug]: check threshold fitness after  " << generation << std::endl;
-        // Early stopping check
-        if (avgFitness >= stoppingThreshold) {
+        // check for convergence (early stopping)
+        if (avgFitness >= globalParams.stoppingThreshold) {
             ++consecutiveGenerations;
-            if (consecutiveGenerations >= requiredConsecutiveGenerations) {
-                std::cout << "[stopping]: average fitness ≥ " << stoppingThreshold
-                          << " for " << requiredConsecutiveGenerations << " consecutive generations." << std::endl;
-                if (logFile.is_open()) {
-                    logFile << "[stopping]: average fitness ≥ " << stoppingThreshold
-                          << " for " << requiredConsecutiveGenerations << " consecutive generations.\n";
-                    logFile.flush();
-                } else {
-                    std::cerr << "[error]: unable to open log file!" << std::endl;
-                    return 1; // exit if logging fails
-                }
+            if (consecutiveGenerations >= globalParams.requiredConsecutiveGenerations) {
+                std::cout << "-----------------------------------------------------------------------------------------" << std::endl;
+                std::cout << "[stopping]: average fitness ≥ " << globalParams.stoppingThreshold
+                          << " for " << globalParams.requiredConsecutiveGenerations
+                          << " consecutive generations." << std::endl;
+                std::cout << "-----------------------------------------------------------------------------------------" << std::endl;
                 break;
             }
         } else {
-            std::cout << "[debug]: threshold not met after  " << generation << std::endl;
-            consecutiveGenerations = 0;
+            consecutiveGenerations = 0;  // reset counter if threshold not met
         }
     }
 
-    // output the best result
+    // output best solution found
     const auto& bestGenome = dynamic_cast<const GA1DArrayGenome<float>&>(ga.statistics().bestIndividual());
-
+    std::cout << "-----------------------------------------------------------------------------------------" << std::endl;
     std::cout << "[best]: learning rate: " << bestGenome.gene(0) << std::endl;
     std::cout << "[best]: dropout rate: " << bestGenome.gene(1) << std::endl;
     std::cout << "[best]: batch size: " << static_cast<int>(bestGenome.gene(2)) << std::endl;
@@ -462,6 +741,7 @@ int main(int argc, char* argv[]) {
     std::cout << "[best]: activation function: " << static_cast<int>(bestGenome.gene(4)) << std::endl;
     std::cout << "[best]: number of hidden layers: " << static_cast<int>(bestGenome.gene(5)) << std::endl;
 
+    // output hidden layer configuration
     std::cout << "[best]: hidden layer sizes: [";
     int num_hidden_layers = static_cast<int>(bestGenome.gene(5));
     for (int i = 0; i < num_hidden_layers; ++i) {
@@ -471,7 +751,9 @@ int main(int argc, char* argv[]) {
     std::cout << "]" << std::endl;
 
     std::cout << "[best]: fitness: " << bestGenome.score() << std::endl;
+    std::cout << "-----------------------------------------------------------------------------------------" << std::endl;
 
+    // cleanup
     if (logFile.is_open()) {
         logFile.close();
     }
