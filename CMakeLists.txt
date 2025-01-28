@@ -16,14 +16,4 @@ add_executable(evol_neuralnet main.cpp)
 # 3. Linking GALib
 # Note: Modify the path to point to your specific GALib library file
 # Different systems might require different link approaches
-if(WIN32)
-    # Windows-specific library linking
-    target_link_libraries(evol_neuralnet 
-        "PATH_TO_GALIB_STATIC_LIBRARY/libgalib.a"
-    )
-elseif(UNIX)
-    # Linux/macOS-specific library linking
-    target_link_libraries(evol_neuralnet 
-        "PATH_TO_GALIB_STATIC_LIBRARY/libga.a"
-    )
-endif()
+target_link_libraries(evol_neuralnet "PATH_TO_GALIB_STATIC_LIBRARY/libgalib.a")
