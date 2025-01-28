@@ -6,6 +6,8 @@ import torch.nn as nn       # neural network modules
 import torch.optim as optim # optimization algorithms
 from torchvision import datasets, transforms  # dataset and transformation utilities
 import os          # operating system interactions
+import argparse
+from contextlib import redirect_stdout, redirect_stderr
 
 # define a dynamic feedforward neural network
 class DynamicNN(nn.Module):
@@ -72,12 +74,20 @@ def train_and_evaluate(model_hyperparams):
     """
 
     # extract hyperparameters from input dictionary with default protection
+    """
     learning_rate = model_hyperparams.get('learning_rate', None)
     hidden_sizes = model_hyperparams.get('hidden_sizes', [])[:model_hyperparams.get('num_hidden_layers', 0)]
     batch_size = model_hyperparams.get('batch_size', None)
     epochs = model_hyperparams.get('epochs', None)
     dropout_rate = model_hyperparams.get('dropout_rate', None)
     activation_function = model_hyperparams.get('activation_function', None)
+    """
+    learning_rate = model_hyperparams.learning_rate
+    hidden_sizes = model_hyperparams.hidden_sizes[:model_hyperparams.num_hidden_layers]
+    batch_size = model_hyperparams.batch_size
+    epochs = model_hyperparams.epochs
+    dropout_rate = model_hyperparams.dropout_rate
+    activation_function = model_hyperparams.activation_function
 
     # map activation function integer to PyTorch activation function
     activation_functions = [nn.ReLU, nn.Tanh, nn.Sigmoid, nn.LeakyReLU]
@@ -88,8 +98,12 @@ def train_and_evaluate(model_hyperparams):
 
     # load MNIST dataset (subset of digits 0–4)
     transform = transforms.Compose([transforms.ToTensor()])
-    train_dataset = datasets.MNIST('.', train=True, download=True, transform=transform)
-    test_dataset = datasets.MNIST('.', train=False, download=True, transform=transform)
+    # Suppress output from download
+    with open(os.devnull, 'w') as f:
+        # Redirect stdout and stderr to os.devnull
+        with redirect_stdout(f), redirect_stderr(f):
+            train_dataset = datasets.MNIST('.', train=True, download=True, transform=transform)
+            test_dataset = datasets.MNIST('.', train=False, download=True, transform=transform)
 
     # filter dataset to include only digits 0–4
     train_dataset.data = train_dataset.data[train_dataset.targets < 5]
@@ -206,8 +220,18 @@ if __name__ == '__main__':
     """
     try:
         # parse hyperparameters from command-line arguments
-        hyperparams = json.loads(sys.argv[1])
-
+        #hyperparams = json.loads(sys.argv[1])
+        parser = argparse.ArgumentParser(description='Train and evaluate a neural network.')
+        parser.add_argument('--learning_rate', type=float, required=False, help='Learning rate for the optimizer.')
+        parser.add_argument('--dropout_rate', type=float, required=False, help='Dropout rate for regularization.')
+        parser.add_argument('--batch_size', type=int, required=False, help='Size of the training and testing batches.')
+        parser.add_argument('--epochs', type=int, required=False, help='Number of training epochs.')
+        parser.add_argument('--activation_function', type=int, required=False, help='Activation function (0: ReLU, 1: Tanh, 2: Sigmoid, 3: LeakyReLU).')
+        parser.add_argument('--num_hidden_layers', type=int, required=False, help='Number of active hidden layers.')
+        parser.add_argument('--hidden_sizes', type=str, required=False, help='Sizes of the hidden layers.')
+        hyperparams = parser.parse_args()
+        if hyperparams.hidden_sizes:
+            hyperparams.hidden_sizes = json.loads(hyperparams.hidden_sizes)
         # train and evaluate the neural network
         fitness, accuracy, loss = train_and_evaluate(hyperparams)
 

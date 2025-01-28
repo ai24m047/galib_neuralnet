@@ -20,6 +20,47 @@ This project implements a genetic algorithm-based approach to automatically opti
 - Torchvision
 - GALib (Genetic Algorithm Library)
 
+### Compiling
+
+Either use `cmake` or the `Makefile`. Please adapt the include and lib directories if you work with other paths. If the Makefile does not work, please try cmake.
+
+#### MAKE
+
+```bash
+make
+```
+
+Use the makefile to run the program:
+```bash
+make test
+```
+
+If you want to execute the program on your own (or add parameters), please cd into the correct directory: 
+```bash
+cd build
+`./evol_neuralnet`
+```
+
+#### CMAKE
+
+```bash
+mkdir build
+cd build
+```
+
+```bash
+cmake ..
+```
+
+```bash
+make
+```
+
+Just run `./evol_neuralnet` or use the Makefile to execute the program:
+```bash
+make test
+```
+
 ### Dependencies Installation
 
 #### C++ Dependencies

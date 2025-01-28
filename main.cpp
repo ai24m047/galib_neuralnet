@@ -10,7 +10,7 @@
 #include "ga/ga.h"
 
 // global flag to enable/disable debug messages
-bool debug_mode = false;
+bool debug_mode = true;
 // global file stream for logging evolution data
 std::ofstream logFile;
 
@@ -180,15 +180,16 @@ std::string buildPythonCommand(float learning_rate,
                              int num_hidden_layers,
                              const std::string& hidden_sizes) {
     std::ostringstream cmd;
-    cmd << "python ../evol_neuralnet.py \""
-        << R"({\"learning_rate\":)" << learning_rate
-        << R"(, \"dropout_rate\":)" << dropout_rate
-        << R"(, \"batch_size\":)" << batch_size
-        << R"(, \"epochs\":)" << epochs
-        << R"(, \"activation_function\":)" << activation_function
-        << R"(, \"num_hidden_layers\":)" << num_hidden_layers
-        << R"(, \"hidden_sizes\":)" << hidden_sizes
-        << "}\"";
+    cmd << "python3 ../evol_neuralnet.py"
+        << " --learning_rate " << learning_rate
+        << " --dropout_rate " << dropout_rate
+        << " --batch_size " << batch_size
+        << " --epochs " << epochs
+        << " --activation_function " << activation_function
+        << " --num_hidden_layers " << num_hidden_layers
+        << " --hidden_sizes " << hidden_sizes
+        << " 2>&1";
+    std::cout << cmd.str() << std::endl;
     return cmd.str();
 }
 
@@ -260,7 +261,7 @@ float evaluate_nn(const std::vector<float>& params) {
     }
 
     // execute python script and capture output
-    FILE* pipe = _popen((cmd + " 2>&1").c_str(), "r");  // redirect stderr to stdout
+    FILE* pipe = popen(cmd.c_str(), "r");  // redirect stderr to stdout
     if (!pipe) {
         std::cerr << "error: could not open pipe to python script!" << std::endl;
         logEvaluationResult(params, num_hidden_layers, batch_size, epochs,
@@ -276,7 +277,7 @@ float evaluate_nn(const std::vector<float>& params) {
     }
 
     // check script execution status
-    int returnCode = _pclose(pipe);
+    int returnCode = pclose(pipe);
     if (returnCode != 0) {
         std::cerr << "error: python script failed with return code " << returnCode << std::endl;
         logEvaluationResult(params, num_hidden_layers, batch_size, epochs,
