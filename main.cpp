@@ -10,7 +10,7 @@
 #include "ga/ga.h"
 
 // global flag to enable/disable debug messages
-bool debug_mode = true;
+bool debug_mode = false;
 // global file stream for logging evolution data
 std::ofstream logFile;
 
