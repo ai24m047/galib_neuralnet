@@ -94,7 +94,19 @@ float evaluate_nn(const std::vector<float>& params) {
     FILE* pipe = _popen((cmd.str() + " 2>&1").c_str(), "r");  // redirect stderr to stdout
     if (!pipe) {
         std::cerr << "error: could not open pipe to python script!" << std::endl;
-        return 0.0f;  // default fitness
+        float fitness = 0.0f;
+        if (logFile.is_open()) {
+            logFile << std::fixed << std::setprecision(8)
+            << params[0] << "," << params[1] << "," << batch_size << ","
+            << epochs << "," << activation_function << "," << num_hidden_layers << ",\"["; // Start of the list with quotes
+            for (int i = 0; i < num_hidden_layers; ++i) {
+                if (i > 0) logFile << ", ";
+                logFile << static_cast<int>(params[6 + i]);
+            }
+            logFile << "]\"" << "," << fitness << "\n"; // End of the list with quotes
+            logFile.flush();
+        }
+        return fitness;  // default fitness
     }
 
     // Read the final output only
@@ -108,7 +120,19 @@ float evaluate_nn(const std::vector<float>& params) {
     int returnCode = _pclose(pipe);
     if (returnCode != 0) {
         std::cerr << "error: python script failed with return code " << returnCode << std::endl;
-        return 0.0f;  // default fitness
+        float fitness = 0.0f;
+        if (logFile.is_open()) {
+            logFile << std::fixed << std::setprecision(8)
+            << params[0] << "," << params[1] << "," << batch_size << ","
+            << epochs << "," << activation_function << "," << num_hidden_layers << ",\"["; // Start of the list with quotes
+            for (int i = 0; i < num_hidden_layers; ++i) {
+                if (i > 0) logFile << ", ";
+                logFile << static_cast<int>(params[6 + i]);
+            }
+            logFile << "]\"" << "," << fitness << "\n"; // End of the list with quotes
+            logFile.flush();
+            }
+        return fitness;  // default fitness
     }
 
     // parse the output as a float representing fitness
@@ -118,12 +142,12 @@ float evaluate_nn(const std::vector<float>& params) {
             std::cout << "[training]: fitness score: " << result << std::endl;
         }
         if (logFile.is_open()) {
-            logFile << std::fixed << std::setprecision(6)
-                    << params[0] << "," << params[1] << "," << batch_size << ","
-                    << epochs << "," << activation_function << "," << num_hidden_layers << ",\"["; // Start of the list with quotes
+            logFile << std::fixed << std::setprecision(8)
+            << params[0] << "," << params[1] << "," << batch_size << ","
+            << epochs << "," << activation_function << "," << num_hidden_layers << ",\"["; // Start of the list with quotes
             for (int i = 0; i < num_hidden_layers; ++i) {
                 if (i > 0) logFile << ", ";
-                logFile << static_cast<int>(params[6 + i]);
+                    logFile << static_cast<int>(params[6 + i]);
             }
             logFile << "]\"" << "," << fitness << "\n"; // End of the list with quotes
             logFile.flush();
@@ -282,9 +306,9 @@ for the neural network.
 */
 int main(int argc, char* argv[]) {
     // default ga parameters
-    int populationSize = 2;       // population size
-    int nGenerations = 3;         // number of generations
-    float pMutation = 0.1f;        // mutation probability
+    int populationSize = 10;       // population size
+    int nGenerations = 15;         // number of generations
+    float pMutation = 0.2f;        // mutation probability
     float pCrossover = 0.7f;       // crossover probability
     float stoppingThreshold = 0.92f; // fitness threshold for stopping
     int requiredConsecutiveGenerations = 5; // required consecutive generations
@@ -320,6 +344,7 @@ int main(int argc, char* argv[]) {
     if (logFile.is_open()) {
         logFile << "LearningRate,DropoutRate,BatchSize,Epochs,ActivationFunction,NumHiddenLayers,HiddenSizes,Fitness\n";
         std::cout << "[logfile]: " << getLogFilePath() << std::endl;
+        logFile.flush();
     } else {
         std::cerr << "[error]: unable to open log file!" << std::endl;
         return 1; // exit if logging fails
@@ -331,7 +356,7 @@ int main(int argc, char* argv[]) {
     GA1DArrayGenome<float> genome(genome_size, Objective);
     genome.initializer(customInitializer);
     genome.mutator(customMutator);
-
+    std::cout << "[debug]: setting ga parameters" << std::endl;
     GASimpleGA ga(genome);
     ga.populationSize(populationSize);
     ga.nGenerations(nGenerations);
@@ -339,40 +364,91 @@ int main(int argc, char* argv[]) {
     ga.pCrossover(pCrossover);
     ga.elitist(static_cast<GABoolean>(0));
 
+    std::cout << "[debug]: setting ga scaling" << std::endl;
+    GANoScaling scaling;
+    ga.scaling(scaling);
+
+    // Add these lines to force evaluation in each generation
+    ga.minimize();  // We're maximizing fitness
+    ga.terminator(GAGeneticAlgorithm::TerminateUponGeneration);
+    ga.scoreFrequency(1);   // Score every generation
+    ga.flushFrequency(1);   // Flush scores every generation
+
     // evolve the population
     // runs through all generations (nGenerations)
     // ga.evolve();
 
     // stepwise evolution
     // handles early termination to avoid overfitting
+    std::cout << "[debug]: initialize ga" << std::endl;
     ga.initialize();
+    std::cout << "[debug]: population after initialization " << ga.population().size() << std::endl;
+    std::cout << "[debug]: enter evolution loop" << std::endl;
     for (int generation = 0; generation < nGenerations; ++generation) {
-        ga.step();  // perform one generation step
+        // validate population size
+        std::cout << "[debug]: population " << ga.population().size() << std::endl;
+        std::cout << "[debug]: generation " << generation << std::endl;
+        if (ga.population().size() != populationSize) {
+            std::cerr << "[error]: Population size mismatch in generation " << generation
+                      << ". Expected: " << populationSize
+                      << ", Actual: " << ga.population().size() << std::endl;
+        }
+        std::cout << "[debug]: starting step for  " << generation << std::endl;
 
-        // evaluate the fitness of the entire population
-        for (int i = 0; i < ga.population().size(); ++i) {
-            GAGenome& individual = ga.population().individual(i);
-            float fitness = individual.evaluate();  // call the objective function
-            individual.score(fitness);             // assign the fitness score
+        std::cout << "[debug]: pre-step individuals:\n";
+        for (int i = 0; i < ga.population().size(); i++) {
+            const auto& genome = dynamic_cast<const GA1DArrayGenome<float>&>(ga.population().individual(i));
+            std::cout << "  Individual " << i << ": score=" << genome.score() << "\n";
         }
 
-        // calculate the average fitness of the current population
+        ga.step();
+
+        std::cout << "[debug]: post-step population size: " << ga.population().size() << std::endl;
+
+        // Print details of each individual after step
+        std::cout << "[debug]: post-step individuals:\n";
+        for (int i = 0; i < ga.population().size(); i++) {
+            const auto& genome = dynamic_cast<const GA1DArrayGenome<float>&>(ga.population().individual(i));
+            std::cout << "  Individual " << i << ": score=" << genome.score() << "\n";
+        }
+
+        std::cout << "[debug]: finished step for  " << generation << std::endl;
+
+        // Calculate average fitness using existing scores
+        std::cout << "[debug]: calculating fitness for  " << generation << std::endl;
         float avgFitness = calculateAverageFitness(ga.population());
+
         if (debug_mode) {
             std::cout << "[generation " << generation << "]: average fitness: " << avgFitness << std::endl;
         }
+        std::cout << "[debug]: start logging fitness for  " << generation << std::endl;
+        // Log the results
+        if (logFile.is_open()) {
+            logFile << "[generation " << generation << "] average fitness: " << avgFitness << "\n";
+            logFile.flush();
+        }
+        std::cout << "[debug]: finished logging fitness for  " << generation << std::endl;
 
-
-        // check if the average fitness meets the stopping threshold
+        std::cout << "[debug]: check threshold fitness after  " << generation << std::endl;
+        // Early stopping check
         if (avgFitness >= stoppingThreshold) {
             ++consecutiveGenerations;
             if (consecutiveGenerations >= requiredConsecutiveGenerations) {
                 std::cout << "[stopping]: average fitness ≥ " << stoppingThreshold
                           << " for " << requiredConsecutiveGenerations << " consecutive generations." << std::endl;
-                break;  // stop the evolution process
+                if (logFile.is_open()) {
+                    logFile << "[stopping]: average fitness ≥ " << stoppingThreshold
+                          << " for " << requiredConsecutiveGenerations << " consecutive generations.\n";
+                    logFile.flush();
+                } else {
+                    std::cerr << "[error]: unable to open log file!" << std::endl;
+                    return 1; // exit if logging fails
+                }
+                break;
             }
         } else {
-            consecutiveGenerations = 0;  // reset the counter if the condition is not met
+            std::cout << "[debug]: threshold not met after  " << generation << std::endl;
+            consecutiveGenerations = 0;
         }
     }
 
