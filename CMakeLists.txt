@@ -18,14 +18,15 @@ add_executable(evol_neuralnet main.cpp)
 # Different systems might require different link approaches
 target_link_libraries(evol_neuralnet "/usr/local/lib/libgalib.a")
 
+# Check if python3 exists, if not, try python
 find_program(PYTHON3_EXECUTABLE python3)
 if(NOT PYTHON3_EXECUTABLE)
-    message(FATAL_ERROR "python3 does not exist")
-else()
-    execute_process(
-            COMMAND ${PYTHON3_EXECUTABLE} -m pip install torch torchvision
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    )
+    find_program(PYTHON_EXECUTABLE python)
+    if(NOT PYTHON_EXECUTABLE)
+        message(FATAL_ERROR "Neither python3 nor python exists")
+    else()
+        set(PYTHON3_EXECUTABLE ${PYTHON_EXECUTABLE})
+    endif()
 endif()
 
 # Test target

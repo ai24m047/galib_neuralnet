@@ -14,6 +14,31 @@ bool debug_mode = false;
 // global file stream for logging evolution data
 std::ofstream logFile;
 
+std::string get_python_executable() {
+#ifdef _WIN32
+    // Check if python3 exists on Windows
+    if (system("system("python3 --version > NUL 2>&1"") == 0) {
+        return "python3";
+    }
+    // Check if python exists on Windows
+    else if (system("system("python --version > NUL 2>&1"") == 0) {
+        return "python";
+    }
+#else
+    // Check if python3 exists on Unix-like environments
+    if (system("command -v python3 > /dev/null 2>&1") == 0) {
+        return "python3";
+    }
+    // Check if python exists on Unix-like environments
+    else if (system("command -v python > /dev/null 2>&1") == 0) {
+        return "python";
+    }
+#endif
+    // Neither python3 nor python exists
+    std::cerr << "Neither python3 nor python exists" << std::endl;
+    exit(1);
+}
+
 /**
 struct containing all configurable parameters for the genetic algorithm.
 includes basic ga settings, convergence criteria, and boundary values
@@ -179,8 +204,9 @@ std::string buildPythonCommand(float learning_rate,
                              int activation_function,
                              int num_hidden_layers,
                              const std::string& hidden_sizes) {
+    std::string python_executable = get_python_executable();
     std::ostringstream cmd;
-    cmd << "python3 ../evol_neuralnet.py"
+    cmd << python_executable.c_str() << " ../evol_neuralnet.py"
         << " --learning_rate " << learning_rate
         << " --dropout_rate " << dropout_rate
         << " --batch_size " << batch_size
@@ -189,7 +215,7 @@ std::string buildPythonCommand(float learning_rate,
         << " --num_hidden_layers " << num_hidden_layers
         << " --hidden_sizes " << hidden_sizes
         << " 2>&1";
-    std::cout << cmd.str() << std::endl;
+    // std::cout << cmd.str() << std::endl;
     return cmd.str();
 }
 

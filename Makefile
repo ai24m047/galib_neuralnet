@@ -7,7 +7,8 @@ CXXFLAGS = -std=c++20
 # Paths
 GALIB_INCLUDE_DIR = /usr/local/include/ga
 GALIB_LIB_DIR = /usr/local/lib
-PYTHON = python3
+PYTHON3 = python3
+PYTHON = python
 
 # Executable and source files
 TARGET = evol_neuralnet
@@ -22,13 +23,22 @@ $(BUILD_DIR)/$(TARGET): $(SRCS)
 	@mkdir -p $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I$(GALIB_INCLUDE_DIR) -o $(BUILD_DIR)/$(TARGET) $(SRCS) $(GALIB_LIB_DIR)/libgalib.a
 
-# Check if python3 exists
+# Check if python3 exists, if not, try python
 check_python:
-	@command -v $(PYTHON) 2>&1 || { echo >&2 "python3 does not exist"; exit 1; }
+	@if command -v $(PYTHON3) 2>/dev/null; then \
+		echo "Using $(PYTHON3)"; \
+		PYTHON_EXEC=$(PYTHON3); \
+	elif command -v $(PYTHON) 2>/dev/null; then \
+		echo "Using $(PYTHON)"; \
+		PYTHON_EXEC=$(PYTHON); \
+	else \
+		echo >&2 "Neither python3 nor python exist"; \
+		exit 1; \
+	fi
 
 # Install dependencies
 install_deps:
-	$(PYTHON) -m pip install torch torchvision
+	$(PYTHON_EXEC) -m pip install torch torchvision
 
 # Test target
 .PHONY: test
