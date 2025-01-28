@@ -17,11 +17,11 @@ std::ofstream logFile;
 std::string get_python_executable() {
 #ifdef _WIN32
     // Check if python3 exists on Windows
-    if (system('python3 --version > NUL 2>&1') == 0) {
+    if (system("python3 --version > NUL 2>&1") == 0) {
         return "python3";
     }
     // Check if python exists on Windows
-    else if (system('python --version > NUL 2>&1') == 0) {
+    else if (system("python --version > NUL 2>&1") == 0) {
         return "python";
     }
 #else
