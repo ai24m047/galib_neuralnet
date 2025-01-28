@@ -3,7 +3,6 @@
 # Compiler and flags
 CXX = g++
 CXXFLAGS = -std=c++20
-LIBS = -lga
 
 # Include directories - change the paths if necessary
 INCLUDES := -I/usr/local/include/
