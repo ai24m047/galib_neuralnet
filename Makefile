@@ -3,10 +3,12 @@
 # Compiler and flags
 CXX = g++
 CXXFLAGS = -std=c++20
+LIBS = -lga
 
-# Paths
-GALIB_INCLUDE_DIR = /usr/local/include/ga
-GALIB_LIB_DIR = /usr/local/lib
+# Include directories - change the paths if necessary
+INCLUDES := -I/usr/local/include/
+LIBS := /usr/local/lib/libgalib.a -lga
+
 PYTHON3 = python3
 PYTHON = python
 
@@ -21,7 +23,7 @@ all: check_python install_deps $(BUILD_DIR)/$(TARGET)
 # Build target
 $(BUILD_DIR)/$(TARGET): $(SRCS)
 	@mkdir -p $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -I$(GALIB_INCLUDE_DIR) -o $(BUILD_DIR)/$(TARGET) $(SRCS) $(GALIB_LIB_DIR)/libgalib.a
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $(BUILD_DIR)/$(TARGET) $(SRCS) $(LIBS)
 
 # Check if python3 exists, if not, try python
 check_python:
