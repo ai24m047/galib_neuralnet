@@ -137,7 +137,7 @@ The optimization targets a combined performance score:
 
 ## Customization and Extensibility
 
-You can easily extend the project by:
+Possible customization and expansion ideas:
 - Adding more activation functions
 - Modifying fitness score calculation
 - Supporting additional datasets
