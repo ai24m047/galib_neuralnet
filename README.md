@@ -148,6 +148,16 @@ Possible customization and expansion ideas:
 - Verify Python and PyTorch installations
 - Review log files for detailed error information
 
+## Authors
+- **Floh Elisabeth**  
+  Email: ai24m047@technikum-wien.at  
+- **Punzengruber Anna Marie**  
+  Email: ai24m055@technikum-wien.at  
+- **Stasek Martin**  
+  Email: ai24m051@technikum-wien.at  
+- **Tichy Carlos Eduardo**  
+  Email: ai24m016@technikum-wien.at  
+
 ## Contributing
 
 Contributions are welcome! Please submit pull requests or open issues on the project repository.
