@@ -10,7 +10,7 @@
 #include "ga/ga.h"
 
 // global flag to enable/disable debug messages
-bool debug_mode = true;
+bool debug_mode = false;
 // global file stream for logging evolution data
 std::ofstream logFile;
 
@@ -621,6 +621,77 @@ for (int i = 1; i < argc; ++i) {
     if (globalParams.minLayerSize >= globalParams.maxLayerSize) {
         std::cerr << "error: minimum layer size must be less than maximum layer size" << std::endl;
         return 1;
+    }
+
+    // print configuration for all globalParams in debug mode for cmd parameter testing
+    if (debug_mode) {
+        bool quick_debug = false; // set true to terminate run after printing this
+        std::cout << "[debug]: configured parameters:" << std::endl;
+
+        // genetic Algorithm Parameters
+        std::cout << "[debug]: population size: "
+                  << (globalParams.populationSize == 15 ? "default (15)" : std::to_string(globalParams.populationSize))
+                  << std::endl;
+
+        std::cout << "[debug]: number of generations: "
+                  << (globalParams.nGenerations == 5 ? "default (5)" : std::to_string(globalParams.nGenerations))
+                  << std::endl;
+
+        std::cout << "[debug]: mutation probability: "
+                  << (globalParams.pMutation == 0.2f ? "default (0.2)" : std::to_string(globalParams.pMutation))
+                  << std::endl;
+
+        std::cout << "[debug]: crossover probability: "
+                  << (globalParams.pCrossover == 0.7f ? "default (0.7)" : std::to_string(globalParams.pCrossover))
+                  << std::endl;
+
+        std::cout << "[debug]: stopping threshold: "
+                  << (globalParams.stoppingThreshold == 0.92f ? "default (0.92)" : std::to_string(globalParams.stoppingThreshold))
+                  << std::endl;
+
+        std::cout << "[debug]: consecutive generations for convergence: "
+                  << (globalParams.requiredConsecutiveGenerations == 5 ? "default (5)" : std::to_string(globalParams.requiredConsecutiveGenerations))
+                  << std::endl;
+
+        // hyperparameter boundaries
+        std::cout << "[debug]: learning rate range: "
+                  << (globalParams.minLearningRate == 0.0001f ? "default min (0.0001)" : std::to_string(globalParams.minLearningRate))
+                  << " - "
+                  << (globalParams.maxLearningRate == 0.1f ? "default max (0.1)" : std::to_string(globalParams.maxLearningRate))
+                  << std::endl;
+
+        std::cout << "[debug]: dropout rate range: "
+                  << (globalParams.minDropoutRate == 0.0f ? "default min (0.0)" : std::to_string(globalParams.minDropoutRate))
+                  << " - "
+                  << (globalParams.maxDropoutRate == 0.5f ? "default max (0.5)" : std::to_string(globalParams.maxDropoutRate))
+                  << std::endl;
+
+        std::cout << "[debug]: batch size range: "
+                  << (globalParams.minBatchSize == 16 ? "default min (16)" : std::to_string(globalParams.minBatchSize))
+                  << " - "
+                  << (globalParams.maxBatchSize == 128 ? "default max (128)" : std::to_string(globalParams.maxBatchSize))
+                  << std::endl;
+
+        std::cout << "[debug]: epochs range: "
+                  << (globalParams.minEpochs == 1 ? "default min (1)" : std::to_string(globalParams.minEpochs))
+                  << " - "
+                  << (globalParams.maxEpochs == 50 ? "default max (50)" : std::to_string(globalParams.maxEpochs))
+                  << std::endl;
+
+        std::cout << "[debug]: hidden layers range: "
+                  << (globalParams.minHiddenLayers == 1 ? "default min (1)" : std::to_string(globalParams.minHiddenLayers))
+                  << " - "
+                  << (globalParams.maxHiddenLayers == 5 ? "default max (5)" : std::to_string(globalParams.maxHiddenLayers))
+                  << std::endl;
+
+        std::cout << "[debug]: layer size range: "
+                  << (globalParams.minLayerSize == 16 ? "default min (16)" : std::to_string(globalParams.minLayerSize))
+                  << " - "
+                  << (globalParams.maxLayerSize == 128 ? "default max (128)" : std::to_string(globalParams.maxLayerSize))
+                  << std::endl;
+        if (quick_debug) {
+            return 0;
+        }
     }
 
     // print configured parameters
