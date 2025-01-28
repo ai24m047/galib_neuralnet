@@ -24,7 +24,6 @@ This project implements a genetic algorithm-based approach to automatically opti
 
 #### C++ Dependencies
 - GALib: Download and install from the official source
-- Recommended compilation flags: `-std=c++17`
 
 #### Python Dependencies
 pip install torch torchvision
