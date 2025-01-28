@@ -55,7 +55,6 @@ The C++ component (`main.cpp`) implements a genetic algorithm that:
    - Epochs
    - Number of hidden layers
    - Layer sizes
-   - Activation functions
 
 #### Configurable Parameters
 You can customize the genetic algorithm and neural network search space via command-line arguments:
